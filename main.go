@@ -13,6 +13,7 @@ import (
 
 func main() {
 
+	// Load kube config
 	kubeConfig := filepath.Join(homedir.HomeDir(), ".kube", "config")
 
 	client := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
@@ -27,9 +28,9 @@ func main() {
 		panic(err)
 	}
 
-	menu := climenu.NewButtonMenu("", "select a context")
-
+	// Display options
 	i := 0
+	menu := climenu.NewButtonMenu("", "select a context")
 	for contextName := range config.Contexts {
 		menu.AddMenuItem(contextName, contextName)
 		if contextName == config.CurrentContext {
@@ -38,6 +39,7 @@ func main() {
 		i++
 	}
 
+	// Make selection
 	selection, escaped := menu.Run()
 	if !escaped {
 		switchContext(config, selection)
