@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -15,20 +16,29 @@ import (
 	"k8s.io/client-go/util/homedir"
 )
 
+const (
+	namespaceFilterConfig = "KS_NAMESPACE_FILTER"
+)
+
 var (
-	kubeConfig      = filepath.Join(homedir.HomeDir(), ".kube", "config")
+	kubeConfigPath  = resolveKubeConfigPath()
 	namespaceFilter = loadNamespaceFilter()
 )
 
 func main() {
-
 	// Load kube config
 	clientConfig := loadConfig()
-
 	rawConfig, err := clientConfig.RawConfig()
 	checkErr(err)
 
-	// Context options and selection
+	// Context
+	selectedContext := selectContext(rawConfig)
+
+	// Namespace
+	selectNamespace(rawConfig, selectedContext)
+}
+
+func selectContext(rawConfig api.Config) string {
 	i := 0
 	menu := climenu.NewButtonMenu("", "select a context")
 	for contextName := range rawConfig.Contexts {
@@ -41,13 +51,16 @@ func main() {
 
 	contextSelection, escaped := menu.Run()
 	if escaped {
-		return
+		os.Exit(0)
 	}
 	rawConfig.CurrentContext = contextSelection
 	setConfig(rawConfig)
 
-	// List namesapces for selected context
-	restConfig, err := clientcmd.BuildConfigFromFlags("", kubeConfig)
+	return contextSelection
+}
+
+func selectNamespace(rawConfig api.Config, selectedContext string) {
+	restConfig, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
 	checkErr(err)
 
 	clientset, err := kubernetes.NewForConfig(restConfig)
@@ -57,10 +70,10 @@ func main() {
 	checkErr(err)
 
 	// Namespace selection
-	i = 0
-	currentNamespace := rawConfig.Contexts[contextSelection].Namespace
-	menu = climenu.NewButtonMenu("", "select a namespace")
-	filterForContext := namespaceFilter[contextSelection]
+	i := 0
+	currentNamespace := rawConfig.Contexts[selectedContext].Namespace
+	menu := climenu.NewButtonMenu("", "select a namespace")
+	filterForContext := namespaceFilter[selectedContext]
 	for _, ns := range namespaces.Items {
 		keep := true
 		if filterForContext != nil {
@@ -84,15 +97,15 @@ func main() {
 
 	nsSelection, escaped := menu.Run()
 	if escaped {
-		return
+		os.Exit(0)
 	}
-	rawConfig.Contexts[contextSelection].Namespace = nsSelection
+	rawConfig.Contexts[selectedContext].Namespace = nsSelection
 
 	setConfig(rawConfig)
 }
 
 func loadNamespaceFilter() map[string][]string {
-	filterConfig := os.Getenv("KS_NAMESPACE_FILTER")
+	filterConfig := os.Getenv(namespaceFilterConfig)
 	if filterConfig == "" {
 		return nil
 	}
@@ -103,7 +116,7 @@ func loadNamespaceFilter() map[string][]string {
 	for _, setting := range settings {
 		contextAndCriteria := strings.Split(setting, ":")
 		if len(contextAndCriteria) != 2 {
-			log.Fatal("KS_NAMESPACE_FILTER is expected on the format 'context_name:match_criteria1,context_name:match_criteria2'")
+			log.Fatal(fmt.Sprintf("%s is expected on the format 'context_name:match_criteria1,context_name:match_criteria2'", namespaceFilterConfig))
 		}
 		filter[contextAndCriteria[0]] = append(filter[contextAndCriteria[0]], contextAndCriteria[1])
 	}
@@ -113,7 +126,7 @@ func loadNamespaceFilter() map[string][]string {
 
 func loadConfig() clientcmd.ClientConfig {
 	client := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeConfig},
+		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeConfigPath},
 		&clientcmd.ConfigOverrides{
 			CurrentContext: "",
 		})
@@ -124,6 +137,15 @@ func loadConfig() clientcmd.ClientConfig {
 func setConfig(c api.Config) {
 	err := clientcmd.ModifyConfig(clientcmd.NewDefaultPathOptions(), c, true)
 	checkErr(err)
+}
+
+func resolveKubeConfigPath() string {
+	pathFromEnv := os.Getenv("KUBECONFIG")
+	if pathFromEnv != "" {
+		return pathFromEnv
+	}
+
+	return filepath.Join(homedir.HomeDir(), ".kube", "config")
 }
 
 func checkErr(err error) {
