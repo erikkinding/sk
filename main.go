@@ -1,8 +1,7 @@
 package main
 
 import (
-	"fmt"
-	"os"
+	"log"
 	"path/filepath"
 
 	"github.com/paulrademacher/climenu"
@@ -24,9 +23,7 @@ func main() {
 
 	config, err := client.RawConfig()
 
-	if err != nil {
-		panic(err)
-	}
+	checkErr(err)
 
 	// Display options
 	i := 0
@@ -46,14 +43,13 @@ func main() {
 	}
 }
 
-func switchContext(c api.Config, ctx string) error {
+func switchContext(c api.Config, ctx string) {
 	c.CurrentContext = ctx
 	err := clientcmd.ModifyConfig(clientcmd.NewDefaultPathOptions(), c, true)
-
+	checkErr(err)
+}
+func checkErr(err error) {
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
-
-	return nil
 }
