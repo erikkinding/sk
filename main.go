@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/paulrademacher/climenu"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -13,19 +15,17 @@ import (
 	"k8s.io/client-go/util/homedir"
 )
 
+var (
+	kubeConfig      = filepath.Join(homedir.HomeDir(), ".kube", "config")
+	namespaceFilter = loadNamespaceFilter()
+)
+
 func main() {
 
 	// Load kube config
-	kubeConfig := filepath.Join(homedir.HomeDir(), ".kube", "config")
+	clientConfig := loadConfig()
 
-	client := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeConfig},
-		&clientcmd.ConfigOverrides{
-			CurrentContext: "",
-		})
-
-	rawConfig, err := client.RawConfig()
-
+	rawConfig, err := clientConfig.RawConfig()
 	checkErr(err)
 
 	// Context options and selection
@@ -40,14 +40,17 @@ func main() {
 	}
 
 	contextSelection, escaped := menu.Run()
-	if !escaped {
-		switchContext(rawConfig, contextSelection)
+	if escaped {
+		return
 	}
+	rawConfig.CurrentContext = contextSelection
+	setConfig(rawConfig)
 
-	config, err := clientcmd.BuildConfigFromFlags("", kubeConfig)
+	// List namesapces for selected context
+	restConfig, err := clientcmd.BuildConfigFromFlags("", kubeConfig)
 	checkErr(err)
 
-	clientset, err := kubernetes.NewForConfig(config)
+	clientset, err := kubernetes.NewForConfig(restConfig)
 	checkErr(err)
 
 	namespaces, err := clientset.CoreV1().Namespaces().List(context.Background(), metav1.ListOptions{})
@@ -55,29 +58,70 @@ func main() {
 
 	// Namespace selection
 	i = 0
+	currentNamespace := rawConfig.Contexts[contextSelection].Namespace
 	menu = climenu.NewButtonMenu("", "select a namespace")
+	filterForContext := namespaceFilter[contextSelection]
 	for _, ns := range namespaces.Items {
-		menu.AddMenuItem(ns.Name, ns.Name)
-		// if contextName == rawConfig.CurrentContext {
-		// 	menu.CursorPos = i
-		// }
-		// i++
+		keep := true
+		if filterForContext != nil {
+			keep = false
+			for _, criteria := range filterForContext {
+				if strings.Contains(ns.Name, criteria) {
+					keep = true
+					break
+				}
+			}
+		}
+
+		if keep {
+			menu.AddMenuItem(ns.Name, ns.Name)
+			if ns.Name == currentNamespace {
+				menu.CursorPos = i
+			}
+			i++
+		}
 	}
 
 	nsSelection, escaped := menu.Run()
-	if !escaped {
-		switchNs(rawConfig, contextSelection, nsSelection)
+	if escaped {
+		return
 	}
+	rawConfig.Contexts[contextSelection].Namespace = nsSelection
+
+	setConfig(rawConfig)
 }
 
-func switchContext(c api.Config, ctx string) {
-	c.CurrentContext = ctx
-	err := clientcmd.ModifyConfig(clientcmd.NewDefaultPathOptions(), c, true)
-	checkErr(err)
+func loadNamespaceFilter() map[string][]string {
+	filterConfig := os.Getenv("KS_NAMESPACE_FILTER")
+	if filterConfig == "" {
+		return nil
+	}
+
+	// Config is expected on the format "context_name:match_criteria1,context_name:match_criteria2"
+	settings := strings.Split(filterConfig, ",")
+	filter := map[string][]string{}
+	for _, setting := range settings {
+		contextAndCriteria := strings.Split(setting, ":")
+		if len(contextAndCriteria) != 2 {
+			log.Fatal("KS_NAMESPACE_FILTER is expected on the format 'context_name:match_criteria1,context_name:match_criteria2'")
+		}
+		filter[contextAndCriteria[0]] = append(filter[contextAndCriteria[0]], contextAndCriteria[1])
+	}
+
+	return filter
 }
 
-func switchNs(c api.Config, ctx, ns string) {
-	c.Contexts[ctx].Namespace = ns
+func loadConfig() clientcmd.ClientConfig {
+	client := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeConfig},
+		&clientcmd.ConfigOverrides{
+			CurrentContext: "",
+		})
+
+	return client
+}
+
+func setConfig(c api.Config) {
 	err := clientcmd.ModifyConfig(clientcmd.NewDefaultPathOptions(), c, true)
 	checkErr(err)
 }
