@@ -138,7 +138,6 @@ func loadConfig() clientcmd.ClientConfig {
 
 func setConfig(c api.Config) {
 	err := clientcmd.ModifyConfig(clientcmd.NewDefaultPathOptions(), c, true)
-	fmt.Println(c)
 	checkErr(err)
 }
 
