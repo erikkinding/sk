@@ -32,13 +32,13 @@ func main() {
 	checkErr(err)
 
 	// Context
-	selectedContext := selectContext(rawConfig)
+	rawConfig = selectContext(rawConfig)
 
 	// Namespace
-	selectNamespace(rawConfig, selectedContext)
+	selectNamespace(rawConfig)
 }
 
-func selectContext(rawConfig api.Config) string {
+func selectContext(rawConfig api.Config) api.Config {
 	i := 0
 	menu := climenu.NewButtonMenu("", "select a context")
 	for contextName := range rawConfig.Contexts {
@@ -56,10 +56,12 @@ func selectContext(rawConfig api.Config) string {
 	rawConfig.CurrentContext = contextSelection
 	setConfig(rawConfig)
 
-	return contextSelection
+	return rawConfig
 }
 
-func selectNamespace(rawConfig api.Config, selectedContext string) {
+func selectNamespace(rawConfig api.Config) {
+	selectedContext := rawConfig.CurrentContext
+
 	restConfig, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
 	checkErr(err)
 
@@ -136,6 +138,7 @@ func loadConfig() clientcmd.ClientConfig {
 
 func setConfig(c api.Config) {
 	err := clientcmd.ModifyConfig(clientcmd.NewDefaultPathOptions(), c, true)
+	fmt.Println(c)
 	checkErr(err)
 }
 
