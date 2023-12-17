@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -21,16 +24,40 @@ var (
 
 func main() {
 
+	var switchPrevious bool
+	flag.BoolVar(&switchPrevious, "p", false, "Use to switch to the previously used context and namespace")
+	flag.Parse()
+
 	// Load kube config
 	clientConfig := loadConfig()
 	rawConfig, err := clientConfig.RawConfig()
 	checkErr(err)
 
-	// Context
-	rawConfig = selectContext(rawConfig)
+	// Previous, to store if something is changed
+	currentContext := rawConfig.CurrentContext
+	currentNamespace := rawConfig.Contexts[currentContext].Namespace
 
-	// Namespace
-	selectNamespace(rawConfig)
+	if switchPrevious {
+		previousContext := readPrevious("context")
+		previousNamespace := readPrevious("namespace")
+		if previousContext != "" && previousNamespace != "" {
+			rawConfig.CurrentContext = previousContext
+			rawConfig.Contexts[currentContext].Namespace = previousNamespace
+			setConfig(rawConfig)
+		}
+
+	} else {
+		// Context
+		rawConfig = selectContext(rawConfig)
+
+		// Namespace
+		selectNamespace(rawConfig)
+	}
+
+	// Store previous.
+	checkErr(createTempDir())
+	checkErr(storePrevious("context", currentContext))
+	checkErr(storePrevious("namespace", currentNamespace))
 }
 
 func selectContext(rawConfig api.Config) api.Config {
@@ -97,12 +124,12 @@ func completer(suggestions []string) func(in prompt.Document) []prompt.Suggest {
 		for _, suggestion := range suggestions {
 			s = append(s, prompt.Suggest{Text: suggestion})
 		}
-		return prompt.FilterHasPrefix(s, in.GetWordBeforeCursor(), true)
+
+		return prompt.FilterFuzzy(s, in.GetWordBeforeCursor(), true)
 	}
 }
 
 func executor(in string) {
-
 	fmt.Println(in)
 
 	if in[0] == byte(prompt.ControlC) {
@@ -171,4 +198,41 @@ func checkErr(err error) {
 func fail(msg string) {
 	fmt.Println(msg)
 	os.Exit(1)
+}
+
+func readPrevious(key string) string {
+	p := path.Join(os.TempDir(), "sk", key)
+	fileBytes, err := os.ReadFile(p)
+
+	// Fine, simply no previous value stored
+	if os.IsNotExist(err) {
+		return ""
+	}
+
+	checkErr(err)
+
+	return string(fileBytes)
+}
+
+func storePrevious(key, value string) error {
+	p := path.Join(os.TempDir(), "sk", key)
+
+	// Create or truncate
+	f, err := os.Create(p)
+	if err != nil {
+		return err
+	}
+
+	n, err := f.WriteString(value)
+	fmt.Printf("Wrote %d bytes to %s", n, p)
+	return err
+}
+
+func createTempDir() error {
+	err := os.Mkdir(path.Join(os.TempDir(), "sk"), os.ModePerm)
+	if strings.Contains(err.Error(), "file exists") {
+		return nil
+	}
+
+	return err
 }

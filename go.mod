@@ -2,7 +2,10 @@ module github.com/erikkinding/sk
 
 go 1.21.1
 
-require k8s.io/client-go v0.28.4
+require (
+	github.com/stretchr/testify v1.8.2
+	k8s.io/client-go v0.28.4
+)
 
 require (
 	github.com/emicklei/go-restful/v3 v3.9.0 // indirect
@@ -20,6 +23,7 @@ require (
 	github.com/mattn/go-tty v0.0.3 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pkg/term v1.2.0-beta.2 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/api v0.28.4 // indirect
 	k8s.io/kube-openapi v0.0.0-20230717233707-2695361300d9 // indirect
