@@ -24,8 +24,13 @@ var (
 
 func main() {
 
+	// Flags
 	var switchPrevious bool
-	flag.BoolVar(&switchPrevious, "p", false, "Use to switch to the previously used context and namespace")
+	flag.BoolVar(&switchPrevious, "p", false, "Use to switch to the previously used context and namespace. Has no effect if state can't be retrieved from temp file.")
+	var nameSpaceMode bool
+	flag.BoolVar(&nameSpaceMode, "n", false, "Select namespace from the ones available for the selected context")
+	var nameSpaceOnlyMode bool
+	flag.BoolVar(&nameSpaceOnlyMode, "N", false, "Only select namespace from the ones available for the selected context")
 	flag.Parse()
 
 	// Load kube config
@@ -48,10 +53,14 @@ func main() {
 
 	} else {
 		// Context
-		rawConfig = selectContext(rawConfig)
+		if !nameSpaceOnlyMode {
+			rawConfig = selectContext(rawConfig)
+		}
 
 		// Namespace
-		selectNamespace(rawConfig)
+		if nameSpaceMode || nameSpaceOnlyMode {
+			selectNamespace(rawConfig)
+		}
 	}
 
 	// Store previous.
@@ -223,8 +232,7 @@ func storePrevious(key, value string) error {
 		return err
 	}
 
-	n, err := f.WriteString(value)
-	fmt.Printf("Wrote %d bytes to %s", n, p)
+	_, err = f.WriteString(value)
 	return err
 }
 
