@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"golang.org/x/term"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -20,9 +21,14 @@ import (
 
 var (
 	kubeConfigPath = resolveKubeConfigPath()
+	termState      *term.State
 )
 
 func main() {
+
+	// To deal with this issue, temporary workaround:
+	saveTermState()
+	defer restoreTermState()
 
 	// Flags
 	var switchPrevious bool
@@ -67,6 +73,20 @@ func main() {
 	checkErr(createTempDir())
 	checkErr(storePrevious("context", currentContext))
 	checkErr(storePrevious("namespace", currentNamespace))
+}
+
+func saveTermState() {
+	oldState, err := term.GetState(int(os.Stdin.Fd()))
+	if err != nil {
+		return
+	}
+	termState = oldState
+}
+
+func restoreTermState() {
+	if termState != nil {
+		term.Restore(int(os.Stdin.Fd()), termState)
+	}
 }
 
 func selectContext(rawConfig api.Config) api.Config {
