@@ -258,7 +258,7 @@ func storePrevious(key, value string) error {
 
 func createTempDir() error {
 	err := os.Mkdir(path.Join(os.TempDir(), "sk"), os.ModePerm)
-	if strings.Contains(err.Error(), "file exists") {
+	if err == nil || strings.Contains(err.Error(), "file exists") {
 		return nil
 	}
 
