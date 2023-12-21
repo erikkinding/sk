@@ -19,3 +19,10 @@ func TestReadPrevious(t *testing.T) {
 	previous := readPrevious("testing")
 	assert.Equal(t, v, previous)
 }
+
+func TestCreateMultiplTempDirs(t *testing.T) {
+	err := createTempDir()
+	assert.NoError(t, err)
+	err = createTempDir()
+	assert.NoError(t, err)
+}
