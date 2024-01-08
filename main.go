@@ -46,7 +46,12 @@ func main() {
 
 	// Previous, to store if something is changed
 	currentContext := rawConfig.CurrentContext
-	currentNamespace := rawConfig.Contexts[currentContext].Namespace
+	var currentNamespace string
+	var hasPrevious bool
+	if currentContext != "" {
+		currentNamespace = rawConfig.Contexts[currentContext].Namespace
+		hasPrevious = true
+	}
 
 	if switchPrevious {
 		previousContext := readPrevious("context")
@@ -71,8 +76,10 @@ func main() {
 
 	// Store previous.
 	checkErr(createTempDir())
-	checkErr(storePrevious("context", currentContext))
-	checkErr(storePrevious("namespace", currentNamespace))
+	if hasPrevious {
+		checkErr(storePrevious("context", currentContext))
+		checkErr(storePrevious("namespace", currentNamespace))
+	}
 }
 
 func saveTermState() {
