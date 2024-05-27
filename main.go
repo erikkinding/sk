@@ -32,17 +32,26 @@ func main() {
 
 	// Flags
 	var switchPrevious bool
-	flag.BoolVar(&switchPrevious, "p", false, "Use to switch to the previously used context and namespace. Has no effect if state can't be retrieved from temp file.")
 	var nameSpaceMode bool
-	flag.BoolVar(&nameSpaceMode, "n", false, "Select namespace from the ones available for the selected context")
 	var nameSpaceOnlyMode bool
+	var printCurrent bool
+
+	flag.BoolVar(&switchPrevious, "p", false, "Use to switch to the previously used context and namespace. Has no effect if state can't be retrieved from temp file.")
+	flag.BoolVar(&nameSpaceMode, "n", false, "Select namespace from the ones available for the selected context")
 	flag.BoolVar(&nameSpaceOnlyMode, "N", false, "Only select namespace from the ones available for the selected context")
+	flag.BoolVar(&printCurrent, "c", false, "Print the currently selected context and namespace")
 	flag.Parse()
 
 	// Load kube config
 	clientConfig := loadConfig()
 	rawConfig, err := clientConfig.RawConfig()
 	checkErr(err)
+
+	// Print current context and namespace
+	if printCurrent {
+		printCurrentContextAndNamespace(rawConfig)
+		return
+	}
 
 	// Previous, to store if something is changed
 	currentContext := rawConfig.CurrentContext
@@ -270,4 +279,11 @@ func createTempDir() error {
 	}
 
 	return err
+}
+
+func printCurrentContextAndNamespace(rawConfig api.Config) {
+	currentContext := rawConfig.CurrentContext
+	currentNamespace := rawConfig.Contexts[currentContext].Namespace
+	fmt.Printf("Current context: %s\n", currentContext)
+	fmt.Printf("Current namespace: %s\n", currentNamespace)
 }

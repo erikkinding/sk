@@ -26,4 +26,5 @@ Primarily, sk looks at $KUBECONFIG to decide which configuration to use and alte
 alias skp="sk -p" # Previously selected context and namespace
 alias skn="sk -n" # Also prompt for namespace selection
 alias skN="sk -N" # Only prompt for namespace selection
+alias skc="sk -c" # Print the currently selected context and namespace
 ```
