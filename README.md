@@ -4,7 +4,7 @@ Switch Kontext is a simple utility to quickly move between Kubernetes contexts a
 ## Installation
 Requires Go
 ``` bash
-go install github.com/erikkinding/sk@v0.3.2
+go install github.com/erikkinding/sk@v0.3.4
 ```
 Make sure your Go bin directory is part of your path, or create an alias for `sk`.
 
@@ -14,6 +14,7 @@ sk -h
 
 Output:
 -N    Only select namespace from the ones available for the selected context
+-c	  Print the currently selected context and namespace
 -n    Select namespace from the ones available for the selected context
 -p    Use to switch to the previously used context and namespace. Has no effect if state can't be retrieved from temp file.
 ```
