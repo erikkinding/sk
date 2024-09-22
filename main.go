@@ -183,13 +183,20 @@ func executor(in string) {
 }
 
 func showPrompt(suggestions []string) string {
+
+	_, height, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil {
+		fmt.Printf("Couldn't get terminal size: %s\n", err.Error())
+		os.Exit(1)
+	}
+
 	p := prompt.New(
 		executor,
 		completer(suggestions),
 		prompt.OptionPreviewSuggestionTextColor(prompt.Blue),
 		prompt.OptionSelectedSuggestionBGColor(prompt.LightGray),
 		prompt.OptionSuggestionBGColor(prompt.DarkGray),
-		prompt.OptionMaxSuggestion(15),
+		prompt.OptionMaxSuggestion(uint16(height-2)),
 		prompt.OptionCompletionOnDown(),
 		prompt.OptionShowCompletionAtStart(),
 		prompt.OptionPrefix(" ⎈ "),
