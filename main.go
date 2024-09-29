@@ -101,7 +101,7 @@ func saveTermState() {
 
 func restoreTermState() {
 	if termState != nil {
-		term.Restore(int(os.Stdin.Fd()), termState)
+		_ = term.Restore(int(os.Stdin.Fd()), termState)
 	}
 }
 
@@ -248,6 +248,7 @@ func checkErr(err error) {
 }
 
 func fail(msg string) {
+	restoreTermState()
 	fmt.Println(msg)
 	os.Exit(1)
 }
