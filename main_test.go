@@ -6,23 +6,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestStorePrevious(t *testing.T) {
-	err := storePrevious("testing", "value1")
+func TestCreateMultiplSkDirs(t *testing.T) {
+	err := createSkDir()
 	assert.NoError(t, err)
-}
-
-func TestReadPrevious(t *testing.T) {
-	v := "value1"
-	err := storePrevious("testing", v)
-	assert.NoError(t, err)
-
-	previous := readPrevious("testing")
-	assert.Equal(t, v, previous)
-}
-
-func TestCreateMultiplTempDirs(t *testing.T) {
-	err := createTempDir()
-	assert.NoError(t, err)
-	err = createTempDir()
+	err = createSkDir()
 	assert.NoError(t, err)
 }

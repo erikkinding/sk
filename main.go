@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -24,23 +25,44 @@ var (
 	termState      *term.State
 )
 
+const (
+	previousContextKey         = "previous_context"
+	previousNamespaceKey       = "previous_namespace"
+	favoriteContextKeyPrefix   = "favorite_context_"
+	favoriteNamespaceKeyPrefix = "favorite_namespace_"
+)
+
 func main() {
 
 	// To deal with this issue, temporary workaround:
 	saveTermState()
 	defer restoreTermState()
 
+	// Create and check config dir
+	checkErr(createSkDir())
+
 	// Flags
 	var switchPrevious bool
 	var nameSpaceMode bool
 	var nameSpaceOnlyMode bool
 	var printCurrent bool
+	var listFavorites bool
+	var favorite string
 
-	flag.BoolVar(&switchPrevious, "p", false, "Use to switch to the previously used context and namespace. Has no effect if state can't be retrieved from temp file.")
+	flag.BoolVar(&switchPrevious, "p", false, "Use to switch to the previously used context and namespace. Has no effect if state can't be retrieved.")
 	flag.BoolVar(&nameSpaceMode, "n", false, "Select namespace from the ones available for the selected context")
 	flag.BoolVar(&nameSpaceOnlyMode, "N", false, "Only select namespace from the ones available for the selected context")
 	flag.BoolVar(&printCurrent, "c", false, "Print the currently selected context and namespace")
+	flag.BoolVar(&listFavorites, "l", false, "List all stored favorites")
+	flag.StringVar(&favorite, "f", "", "Select a favorite context")
+	flag.StringVar(&favorite, "F", "", "Store current context and namespace as favorite")
 	flag.Parse()
+
+	loadFavorite := flagPassed("f")
+	storeFavorite := flagPassed("F")
+	if loadFavorite && storeFavorite {
+		fail("Can't use -f and -F at the same time")
+	}
 
 	// Load kube config
 	clientConfig := loadConfig()
@@ -62,15 +84,27 @@ func main() {
 		hasPrevious = true
 	}
 
-	if switchPrevious {
-		previousContext := readPrevious("context")
-		previousNamespace := readPrevious("namespace")
+	if loadFavorite {
+		favoriteContext := readValue(fmt.Sprintf("%s%s", favoriteContextKeyPrefix, favorite))
+		favoriteNamespace := readValue(fmt.Sprintf("%s%s", favoriteNamespaceKeyPrefix, favorite))
+		if favoriteContext != "" && favoriteNamespace != "" {
+			rawConfig.CurrentContext = favoriteContext
+			rawConfig.Contexts[currentContext].Namespace = favoriteNamespace
+			setConfig(rawConfig)
+		}
+	} else if storeFavorite {
+		checkErr(storeValue(fmt.Sprintf("%s%s", favoriteContextKeyPrefix, favorite), currentContext))
+		checkErr(storeValue(fmt.Sprintf("%s%s", favoriteNamespaceKeyPrefix, favorite), currentNamespace))
+	} else if switchPrevious {
+		previousContext := readValue(previousContextKey)
+		previousNamespace := readValue(previousNamespaceKey)
 		if previousContext != "" && previousNamespace != "" {
 			rawConfig.CurrentContext = previousContext
 			rawConfig.Contexts[currentContext].Namespace = previousNamespace
 			setConfig(rawConfig)
 		}
-
+	} else if listFavorites {
+		printFavorites()
 	} else {
 		// Context
 		if !nameSpaceOnlyMode {
@@ -84,11 +118,71 @@ func main() {
 	}
 
 	// Store previous.
-	checkErr(createTempDir())
 	if hasPrevious {
-		checkErr(storePrevious("context", currentContext))
-		checkErr(storePrevious("namespace", currentNamespace))
+		checkErr(storeValue(previousContextKey, currentContext))
+		checkErr(storeValue(previousNamespaceKey, currentNamespace))
 	}
+}
+
+func printFavorites() {
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		fail("Couldn't resolve user home dir")
+	}
+
+	files, err := os.ReadDir(path.Join(userHome, ".sk"))
+	if err != nil {
+		fail("Couldn't read sk dir")
+	}
+
+	type favorite struct {
+		context   string
+		namespace string
+	}
+
+	favorites := map[string]favorite{}
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+
+		fileName := file.Name()
+		if strings.HasPrefix(fileName, favoriteContextKeyPrefix) {
+			favoriteName := strings.TrimPrefix(fileName, favoriteContextKeyPrefix)
+			c := readValue(fileName)
+			f, ok := favorites[favoriteName]
+			if !ok {
+				favorites[favoriteName] = favorite{context: c, namespace: f.namespace}
+			} else {
+				favorites[favoriteName] = favorite{context: "", namespace: ""}
+			}
+		}
+
+		if strings.HasPrefix(fileName, favoriteNamespaceKeyPrefix) {
+			favoriteName := strings.TrimPrefix(fileName, favoriteNamespaceKeyPrefix)
+			n := readValue(fileName)
+			f, ok := favorites[favoriteName]
+			if ok {
+				favorites[favoriteName] = favorite{context: f.context, namespace: n}
+			} else {
+				favorites[favoriteName] = favorite{context: "", namespace: ""}
+			}
+		}
+	}
+
+	for k, v := range favorites {
+		fmt.Printf("%s: %s/%s\n", k, v.context, v.namespace)
+	}
+}
+
+func flagPassed(name string) bool {
+	found := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			found = true
+		}
+	})
+	return found
 }
 
 func saveTermState() {
@@ -249,12 +343,16 @@ func checkErr(err error) {
 
 func fail(msg string) {
 	restoreTermState()
-	fmt.Println(msg)
-	os.Exit(1)
+	log.Fatal(msg)
 }
 
-func readPrevious(key string) string {
-	p := path.Join(os.TempDir(), "sk", key)
+func readValue(key string) string {
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		fail("Couldn't resolve user home dir")
+	}
+
+	p := path.Join(userHome, ".sk", key)
 	fileBytes, err := os.ReadFile(p)
 
 	// Fine, simply no previous value stored
@@ -267,8 +365,13 @@ func readPrevious(key string) string {
 	return string(fileBytes)
 }
 
-func storePrevious(key, value string) error {
-	p := path.Join(os.TempDir(), "sk", key)
+func storeValue(key, value string) error {
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		fail("Couldn't resolve user home dir")
+	}
+
+	p := path.Join(userHome, ".sk", key)
 
 	// Create or truncate
 	f, err := os.Create(p)
@@ -280,8 +383,13 @@ func storePrevious(key, value string) error {
 	return err
 }
 
-func createTempDir() error {
-	err := os.Mkdir(path.Join(os.TempDir(), "sk"), os.ModePerm)
+func createSkDir() error {
+	userHome, err := os.UserHomeDir()
+	if err != nil {
+		fail("Couldn't resolve user home dir")
+	}
+
+	err = os.Mkdir(path.Join(userHome, ".sk"), os.ModePerm)
 	if err == nil || strings.Contains(err.Error(), "file exists") {
 		return nil
 	}
