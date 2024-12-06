@@ -87,9 +87,11 @@ func main() {
 	if loadFavorite {
 		favoriteContext := readValue(fmt.Sprintf("%s%s", favoriteContextKeyPrefix, favorite))
 		favoriteNamespace := readValue(fmt.Sprintf("%s%s", favoriteNamespaceKeyPrefix, favorite))
+		fmt.Println(favoriteContext)
+		fmt.Println(favoriteNamespace)
 		if favoriteContext != "" && favoriteNamespace != "" {
 			rawConfig.CurrentContext = favoriteContext
-			rawConfig.Contexts[currentContext].Namespace = favoriteNamespace
+			rawConfig.Contexts[favoriteContext].Namespace = favoriteNamespace
 			setConfig(rawConfig)
 		}
 	} else if storeFavorite {
