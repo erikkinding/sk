@@ -4,7 +4,7 @@ Switch Kontext is a simple utility to quickly move between Kubernetes contexts a
 ## Installation
 Requires Go
 ``` bash
-go install github.com/erikkinding/sk@v0.3.7
+go install github.com/erikkinding/sk@v0.3.8
 ```
 Make sure your Go bin directory is part of your path, or create an alias for `sk`.
 
