@@ -26,6 +26,7 @@ Output:
 
 Primarily, sk looks at $KUBECONFIG to decide which configuration to use and alter. If not set, it defaults to ~/.kube/config. 
 
+A silly test
 
 ### Handy alias:
 ``` bash
