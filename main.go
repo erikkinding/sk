@@ -22,6 +22,7 @@ import (
 
 var (
 	kubeConfigPath = resolveKubeConfigPath()
+	skDir          = resolveSkDir()
 	termState      *term.State
 )
 
@@ -127,12 +128,7 @@ func main() {
 }
 
 func printFavorites() {
-	userHome, err := os.UserHomeDir()
-	if err != nil {
-		fail("Couldn't resolve user home dir")
-	}
-
-	files, err := os.ReadDir(path.Join(userHome, ".sk"))
+	files, err := os.ReadDir(skDir)
 	if err != nil {
 		fail("Couldn't read sk dir")
 	}
@@ -201,7 +197,7 @@ func restoreTermState() {
 	}
 }
 
-func selectContext(rawConfig api.Config) api.Config {
+func getContextNames(rawConfig api.Config) []string {
 	contexts := []string{}
 	for context := range rawConfig.Contexts {
 		// Current value on top
@@ -211,6 +207,20 @@ func selectContext(rawConfig api.Config) api.Config {
 			contexts = append(contexts, context)
 		}
 	}
+	return contexts
+}
+
+func applyContextChange(rawConfig api.Config, contextName string) error {
+	if rawConfig.Contexts[contextName] == nil {
+		return fmt.Errorf("context %q not found in kubeconfig", contextName)
+	}
+	rawConfig.CurrentContext = contextName
+	setConfig(rawConfig)
+	return nil
+}
+
+func selectContext(rawConfig api.Config) api.Config {
+	contexts := getContextNames(rawConfig)
 
 	selectedContext := showPrompt(contexts)
 
@@ -218,33 +228,59 @@ func selectContext(rawConfig api.Config) api.Config {
 		fail(fmt.Sprintf("'%s' is not a valid context selection", selectedContext))
 	}
 
+	checkErr(applyContextChange(rawConfig, selectedContext))
 	rawConfig.CurrentContext = selectedContext
-	setConfig(rawConfig)
 
 	return rawConfig
+}
+
+func listNamespaces(cfgPath string) ([]string, error) {
+	restConfig, err := clientcmd.BuildConfigFromFlags("", cfgPath)
+	if err != nil {
+		return nil, err
+	}
+
+	clientset, err := kubernetes.NewForConfig(restConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	nss, err := clientset.CoreV1().Namespaces().List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(nss.Items))
+	for _, ns := range nss.Items {
+		names = append(names, ns.Name)
+	}
+	return names, nil
+}
+
+func applyNamespaceChange(rawConfig api.Config, contextName, namespaceName string) error {
+	ctx, ok := rawConfig.Contexts[contextName]
+	if !ok || ctx == nil {
+		return fmt.Errorf("context %q not found in kubeconfig", contextName)
+	}
+	rawConfig.Contexts[contextName].Namespace = namespaceName
+	setConfig(rawConfig)
+	return nil
 }
 
 func selectNamespace(rawConfig api.Config) {
 	selectedContext := rawConfig.CurrentContext
 
-	restConfig, err := clientcmd.BuildConfigFromFlags("", kubeConfigPath)
+	allNs, err := listNamespaces(kubeConfigPath)
 	checkErr(err)
 
-	clientset, err := kubernetes.NewForConfig(restConfig)
-	checkErr(err)
-
-	nss, err := clientset.CoreV1().Namespaces().List(context.Background(), metav1.ListOptions{})
-	checkErr(err)
-
-	// Namespace selection
+	// Current value on top
 	currentNamespace := rawConfig.Contexts[selectedContext].Namespace
 	nsNames := []string{}
-	for _, ns := range nss.Items {
-		// Current value on top
-		if ns.Name == currentNamespace {
-			nsNames = append([]string{ns.Name}, nsNames...)
+	for _, name := range allNs {
+		if name == currentNamespace {
+			nsNames = append([]string{name}, nsNames...)
 		} else {
-			nsNames = append(nsNames, ns.Name)
+			nsNames = append(nsNames, name)
 		}
 	}
 
@@ -254,9 +290,7 @@ func selectNamespace(rawConfig api.Config) {
 		fail(fmt.Sprintf("'%s' is not a valid namespace selection", selectedContext))
 	}
 
-	rawConfig.Contexts[selectedContext].Namespace = nsSelection
-
-	setConfig(rawConfig)
+	checkErr(applyNamespaceChange(rawConfig, selectedContext, nsSelection))
 }
 
 func completer(suggestions []string) func(in prompt.Document) []prompt.Suggest {
@@ -348,13 +382,17 @@ func fail(msg string) {
 	log.Fatal(msg)
 }
 
-func readValue(key string) string {
+func resolveSkDir() string {
 	userHome, err := os.UserHomeDir()
 	if err != nil {
-		fail("Couldn't resolve user home dir")
+		// best effort
+		return ".sk"
 	}
+	return path.Join(userHome, ".sk")
+}
 
-	p := path.Join(userHome, ".sk", key)
+func readValue(key string) string {
+	p := path.Join(skDir, key)
 	fileBytes, err := os.ReadFile(p)
 
 	// Fine, simply no previous value stored
@@ -368,12 +406,7 @@ func readValue(key string) string {
 }
 
 func storeValue(key, value string) error {
-	userHome, err := os.UserHomeDir()
-	if err != nil {
-		fail("Couldn't resolve user home dir")
-	}
-
-	p := path.Join(userHome, ".sk", key)
+	p := path.Join(skDir, key)
 
 	// Create or truncate
 	f, err := os.Create(p)
@@ -386,12 +419,7 @@ func storeValue(key, value string) error {
 }
 
 func createSkDir() error {
-	userHome, err := os.UserHomeDir()
-	if err != nil {
-		fail("Couldn't resolve user home dir")
-	}
-
-	err = os.Mkdir(path.Join(userHome, ".sk"), os.ModePerm)
+	err := os.Mkdir(skDir, os.ModePerm)
 	if err == nil || strings.Contains(err.Error(), "file exists") {
 		return nil
 	}

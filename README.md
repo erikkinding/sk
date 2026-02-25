@@ -35,3 +35,29 @@ alias skN="sk -N" # Only prompt for namespace selection
 alias skc="sk -c" # Print the currently selected context and namespace
 alias skf="sk -f" # Jump to favorite
 ```
+
+## Development
+
+### Unit tests
+Run the lightweight unit tests (no external dependencies):
+``` bash
+go test -v .
+```
+
+### Integration tests
+Integration tests spin up a real Kubernetes cluster inside a Docker container using
+[k3s via testcontainers-go](https://golang.testcontainers.org/modules/k3s/).  
+Requires a running Docker daemon.
+
+``` bash
+go test -tags integration -v -timeout 5m .
+```
+
+The test suite (`integration_test.go`) covers every feature end-to-end:
+- listing and switching contexts
+- listing namespaces from the live cluster and switching namespaces
+- storing / loading / listing favorites (`-F`, `-f`, `-l`)
+- previous-context restore (`-p`)
+- printing the current context and namespace (`-c`)
+- selection validation
+
