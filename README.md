@@ -6,7 +6,7 @@ Switch Kontext is a simple utility to quickly move between Kubernetes contexts a
 ### Homebrew (macOS/Linux)
 ``` bash
 brew tap erikkinding/tap
-brew install sk
+brew install erikkinding/tap/sk
 ```
 
 ### Go
