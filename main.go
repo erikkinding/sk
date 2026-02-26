@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"golang.org/x/term"
@@ -30,8 +31,9 @@ var (
 var version = "dev"
 
 const (
-	previousContextKey         = "previous_context"
-	previousNamespaceKey       = "previous_namespace"
+	// previousStateFile holds "context\nnamespace" and is written atomically
+	// (temp-file + rename) so a concurrent sk -p never sees a torn state.
+	previousStateFile          = "previous_state"
 	favoriteContextKeyPrefix   = "favorite_context_"
 	favoriteNamespaceKeyPrefix = "favorite_namespace_"
 )
@@ -63,6 +65,11 @@ func main() {
 	flag.StringVar(&favorite, "f", "", "Select a favorite context")
 	flag.StringVar(&favorite, "F", "", "Store current context and namespace as favorite")
 	flag.Parse()
+
+	// Allow bare "-" as a shorthand for -p (switch to previous context/namespace).
+	if slices.Contains(flag.Args(), "-") {
+		switchPrevious = true
+	}
 
 	if printVersion {
 		fmt.Println(version)
@@ -109,11 +116,10 @@ func main() {
 		checkErr(storeValue(fmt.Sprintf("%s%s", favoriteContextKeyPrefix, favorite), currentContext))
 		checkErr(storeValue(fmt.Sprintf("%s%s", favoriteNamespaceKeyPrefix, favorite), currentNamespace))
 	} else if switchPrevious {
-		previousContext := readValue(previousContextKey)
-		previousNamespace := readValue(previousNamespaceKey)
-		if previousContext != "" && previousNamespace != "" {
+		previousContext, previousNamespace := readPreviousState()
+		if previousContext != "" {
 			rawConfig.CurrentContext = previousContext
-			rawConfig.Contexts[currentContext].Namespace = previousNamespace
+			rawConfig.Contexts[previousContext].Namespace = previousNamespace
 			setConfig(rawConfig)
 		}
 	} else if listFavorites {
@@ -130,10 +136,20 @@ func main() {
 		}
 	}
 
-	// Store previous.
+	// Store previous only when context or namespace actually changed.
+	// This prevents toggling to the same destination from clobbering the
+	// stored previous state, and skips no-op invocations entirely.
 	if hasPrevious {
-		checkErr(storeValue(previousContextKey, currentContext))
-		checkErr(storeValue(previousNamespaceKey, currentNamespace))
+		newConfig, err := loadConfig().RawConfig()
+		checkErr(err)
+		newContext := newConfig.CurrentContext
+		var newNamespace string
+		if newContext != "" {
+			newNamespace = newConfig.Contexts[newContext].Namespace
+		}
+		if newContext != currentContext || newNamespace != currentNamespace {
+			checkErr(storePreviousState(currentContext, currentNamespace))
+		}
 	}
 }
 
@@ -425,7 +441,70 @@ func storeValue(key, value string) error {
 	}
 
 	_, err = f.WriteString(value)
-	return err
+	if err != nil {
+		f.Close()
+		return err
+	}
+
+	return f.Close()
+}
+
+// storePreviousState writes ctx and ns as a single atomic operation so that a
+// concurrent sk -p can never observe a torn state (new context + old namespace).
+func storePreviousState(ctx, ns string) error {
+	dest := path.Join(skDir, previousStateFile)
+
+	// Write to a sibling temp file, then rename into place. On POSIX systems
+	// rename(2) is atomic within the same filesystem, guaranteeing readers
+	// always see either the old complete state or the new complete state.
+	tmp, err := os.CreateTemp(skDir, previousStateFile+".tmp*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+
+	_, err = fmt.Fprintf(tmp, "%s\n%s", ctx, ns)
+	if err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return err
+	}
+	if err = tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return err
+	}
+
+	return os.Rename(tmpName, dest)
+}
+
+// readPreviousState returns the context and namespace stored by storePreviousState.
+// Returns empty strings when no state has been stored yet.
+// Falls back to the legacy two-file format (previous_context / previous_namespace)
+// and migrates it to the new format on first read.
+func readPreviousState() (ctx, ns string) {
+	p := path.Join(skDir, previousStateFile)
+	data, err := os.ReadFile(p)
+	if err == nil {
+		parts := strings.SplitN(string(data), "\n", 2)
+		if len(parts) == 2 {
+			return parts[0], parts[1]
+		}
+	}
+	if !os.IsNotExist(err) {
+		checkErr(err)
+	}
+
+	// Legacy migration: read the old two-file format and promote to the new
+	// atomic single-file format so the next read is already migrated.
+	legacyCtx := readValue("previous_context")
+	if legacyCtx == "" {
+		return "", ""
+	}
+	legacyNs := readValue("previous_namespace")
+	// Best-effort migration — ignore errors; the files will be rewritten on
+	// the next successful switch anyway.
+	_ = storePreviousState(legacyCtx, legacyNs)
+	return legacyCtx, legacyNs
 }
 
 func createSkDir() error {
