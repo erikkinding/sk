@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
     steps:
       - name: Checkout sk
         uses: actions/checkout@v4
@@ -45,13 +46,22 @@ jobs:
       - name: Update README version
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          sed -i "s|go install github.com/erikkinding/sk@v[^\"]*|go install github.com/erikkinding/sk@v${VERSION}|" README.md
+          branch="release/v${VERSION}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          sed -i "s|go install github.com/erikkinding/sk@v[^\"]*|go install github.com/erikkinding/sk@v${VERSION}|" README.md
           git add README.md
-          git commit -m "Update README install version to v${VERSION}" || echo "No changes to commit"
-          git push
+          git commit -m "Update README install version to v${VERSION}"
+          git push origin "$branch"
+          gh pr create \
+            --title "Release v${VERSION}" \
+            --body "Automated README update for v${VERSION}." \
+            --base main \
+            --head "$branch"
+          gh pr merge --auto --squash
 
       - name: Update Homebrew formula
         env:
