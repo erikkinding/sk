@@ -31,6 +31,7 @@ Output:
   -n    Select namespace from the ones available for the selected context
   -p    Use to switch to the previously used context and namespace. Has no effect if state can't be retrieved.
   -v    Print the current version
+  -     Shorthand for -p. (Yes, just a lonely dash)
 ```
 
 Primarily, sk looks at $KUBECONFIG to decide which configuration to use and alter. If not set, it defaults to ~/.kube/config. 

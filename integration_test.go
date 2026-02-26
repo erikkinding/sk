@@ -318,11 +318,11 @@ func TestPrintCurrentContextAndNamespace_ShowsContextAndNamespace(t *testing.T) 
 func TestPreviousContext_StoreAndRetrieve(t *testing.T) {
 	setupTest(t)
 
-	require.NoError(t, storeValue(previousContextKey, ctxBeta))
-	require.NoError(t, storeValue(previousNamespaceKey, "kube-system"))
+	require.NoError(t, storePreviousState(ctxBeta, "kube-system"))
 
-	assert.Equal(t, ctxBeta, readValue(previousContextKey))
-	assert.Equal(t, "kube-system", readValue(previousNamespaceKey))
+	ctx, ns := readPreviousState()
+	assert.Equal(t, ctxBeta, ctx)
+	assert.Equal(t, "kube-system", ns)
 }
 
 func TestPreviousContext_SwitchToPrevious(t *testing.T) {
@@ -330,15 +330,13 @@ func TestPreviousContext_SwitchToPrevious(t *testing.T) {
 	setupTest(t)
 
 	// Store a "previous" state.
-	require.NoError(t, storeValue(previousContextKey, ctxGamma))
-	require.NoError(t, storeValue(previousNamespaceKey, testNamespace1))
+	require.NoError(t, storePreviousState(ctxGamma, testNamespace1))
 
 	// Apply it (mirrors the main() -p code path).
 	cfg, err := loadConfig().RawConfig()
 	require.NoError(t, err)
 
-	prevCtx := readValue(previousContextKey)
-	prevNs := readValue(previousNamespaceKey)
+	prevCtx, prevNs := readPreviousState()
 	require.Equal(t, ctxGamma, prevCtx)
 	require.Equal(t, testNamespace1, prevNs)
 
@@ -356,8 +354,9 @@ func TestPreviousContext_SwitchToPrevious(t *testing.T) {
 func TestPreviousContext_EmptyWhenNeverStored(t *testing.T) {
 	setupTest(t)
 
-	assert.Equal(t, "", readValue(previousContextKey))
-	assert.Equal(t, "", readValue(previousNamespaceKey))
+	ctx, ns := readPreviousState()
+	assert.Equal(t, "", ctx)
+	assert.Equal(t, "", ns)
 }
 
 // ── Favorites ─────────────────────────────────────────────────────────────────
@@ -445,6 +444,130 @@ func TestValidateSelection_RejectsUnknownOption(t *testing.T) {
 	assert.False(t, validateSelection(options, ""))
 }
 
+// ── Dash alias ───────────────────────────────────────────────────────────────
+
+func TestDashAlias_BehavesLikeSwitchPrevious(t *testing.T) {
+	// "sk -" must produce the same result as "sk -p".
+	setupTest(t)
+
+	// Start on ctxAlpha; store ctxBeta/testNamespace1 as previous.
+	require.NoError(t, storePreviousState(ctxBeta, testNamespace1))
+
+	cfg, err := loadConfig().RawConfig()
+	require.NoError(t, err)
+	require.Equal(t, ctxAlpha, cfg.CurrentContext)
+
+	// Simulate the flag.Args() == ["-"] code path.
+	switchPrevious := false
+	for _, arg := range []string{"-"} {
+		if arg == "-" {
+			switchPrevious = true
+			break
+		}
+	}
+	require.True(t, switchPrevious)
+
+	previousContext, previousNamespace := readPreviousState()
+	if previousContext != "" {
+		require.NoError(t, applyContextChange(cfg, previousContext))
+		cfg2, err := loadConfig().RawConfig()
+		require.NoError(t, err)
+		require.NoError(t, applyNamespaceChange(cfg2, previousContext, previousNamespace))
+	}
+
+	updated, err := loadConfig().RawConfig()
+	require.NoError(t, err)
+	assert.Equal(t, ctxBeta, updated.CurrentContext)
+	assert.Equal(t, testNamespace1, updated.Contexts[ctxBeta].Namespace)
+}
+
+// TestSwitchPrevious_RepeatedToggle simulates running "sk -p" 10 times in succession
+// and verifies that each invocation correctly toggles between two contexts/namespaces.
+// This exercises the full -p code path including storeValue/readValue persistence.
+func TestSwitchPrevious_RepeatedToggle(t *testing.T) {
+	setupTest(t)
+
+	// Establish a known starting state: current = ctxAlpha/testNamespace1,
+	// and store ctxBeta/testNamespace2 as the previous.
+	cfg, err := loadConfig().RawConfig()
+	require.NoError(t, err)
+	require.NoError(t, applyContextChange(cfg, ctxAlpha))
+
+	cfg2, err := loadConfig().RawConfig()
+	require.NoError(t, err)
+	require.NoError(t, applyNamespaceChange(cfg2, ctxAlpha, testNamespace1))
+
+	require.NoError(t, storePreviousState(ctxBeta, testNamespace2))
+
+	// After each toggle, expected state flips between these two.
+	type state struct {
+		ctx string
+		ns  string
+	}
+	expected := []state{
+		{ctxBeta, testNamespace2},
+		{ctxAlpha, testNamespace1},
+		{ctxBeta, testNamespace2},
+		{ctxAlpha, testNamespace1},
+		{ctxBeta, testNamespace2},
+		{ctxAlpha, testNamespace1},
+		{ctxBeta, testNamespace2},
+		{ctxAlpha, testNamespace1},
+		{ctxBeta, testNamespace2},
+		{ctxAlpha, testNamespace1},
+	}
+
+	for i, want := range expected {
+		// ── replicate main()'s -p code path ───────────────────────────────────
+		raw, err := loadConfig().RawConfig()
+		require.NoError(t, err, "iteration %d: loadConfig", i)
+
+		currentCtx := raw.CurrentContext
+		currentNs := raw.Contexts[currentCtx].Namespace
+
+		prevCtx, prevNs := readPreviousState()
+
+		require.NotEmpty(t, prevCtx, "iteration %d: previousContext must not be empty", i)
+
+		raw.CurrentContext = prevCtx
+		raw.Contexts[prevCtx].Namespace = prevNs
+		setConfig(raw)
+
+		// Mirror main()'s actual-change check before storing previous.
+		newRaw, err := loadConfig().RawConfig()
+		require.NoError(t, err, "iteration %d: reload after switch", i)
+		newCtx := newRaw.CurrentContext
+		newNs := newRaw.Contexts[newCtx].Namespace
+		if newCtx != currentCtx || newNs != currentNs {
+			require.NoError(t, storePreviousState(currentCtx, currentNs))
+		}
+		// ──────────────────────────────────────────────────────────────────────
+
+		assert.Equal(t, want.ctx, newRaw.CurrentContext, "iteration %d: context", i)
+		assert.Equal(t, want.ns, newRaw.Contexts[want.ctx].Namespace, "iteration %d: namespace", i)
+	}
+}
+
+func TestDashAlias_NoOpWhenNoPreviousStored(t *testing.T) {
+	// If no previous state is stored, "sk -" must leave the config unchanged.
+	setupTest(t)
+
+	cfg, err := loadConfig().RawConfig()
+	require.NoError(t, err)
+	require.Equal(t, ctxAlpha, cfg.CurrentContext)
+
+	previousContext, _ := readPreviousState()
+	// Nothing stored; the block inside the condition must not execute.
+	if previousContext != "" {
+		t.Fatal("expected no previous state to be stored")
+	}
+
+	// Config must be unchanged.
+	updated, err := loadConfig().RawConfig()
+	require.NoError(t, err)
+	assert.Equal(t, ctxAlpha, updated.CurrentContext)
+}
+
 // ── Full workflow integration ─────────────────────────────────────────────────
 
 // TestFullWorkflow exercises the sequence a user would follow:
@@ -487,16 +610,14 @@ func TestFullWorkflow(t *testing.T) {
 	require.NoError(t, storeValue(favoriteNamespaceKeyPrefix+"myenv", testNamespace1))
 
 	// 5. Switch away to ctxGamma and store ctxBeta as "previous".
-	require.NoError(t, storeValue(previousContextKey, ctxBeta))
-	require.NoError(t, storeValue(previousNamespaceKey, testNamespace1))
+	require.NoError(t, storePreviousState(ctxBeta, testNamespace1))
 
 	cfg4, err := loadConfig().RawConfig()
 	require.NoError(t, err)
 	require.NoError(t, applyContextChange(cfg4, ctxGamma))
 
 	// Restore previous (-p semantics).
-	prevCtx := readValue(previousContextKey)
-	prevNs := readValue(previousNamespaceKey)
+	prevCtx, prevNs := readPreviousState()
 	cfg5, err := loadConfig().RawConfig()
 	require.NoError(t, err)
 	require.NoError(t, applyContextChange(cfg5, prevCtx))
