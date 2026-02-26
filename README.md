@@ -2,6 +2,14 @@
 Switch Kontext is a simple utility to quickly move between Kubernetes contexts and namespaces.
 
 ## Installation
+
+### Homebrew (macOS/Linux)
+``` bash
+brew tap erikkinding/tap
+brew install sk
+```
+
+### Go
 Requires Go
 ``` bash
 go install github.com/erikkinding/sk@v0.3.9
@@ -22,6 +30,7 @@ Output:
   -l    List all stored favorites
   -n    Select namespace from the ones available for the selected context
   -p    Use to switch to the previously used context and namespace. Has no effect if state can't be retrieved.
+  -v    Print the current version
 ```
 
 Primarily, sk looks at $KUBECONFIG to decide which configuration to use and alter. If not set, it defaults to ~/.kube/config. 

@@ -26,6 +26,9 @@ var (
 	termState      *term.State
 )
 
+// Version is set at build time using -ldflags "-X main.version=1.0.0"
+var version = "dev"
+
 const (
 	previousContextKey         = "previous_context"
 	previousNamespaceKey       = "previous_namespace"
@@ -43,6 +46,7 @@ func main() {
 	checkErr(createSkDir())
 
 	// Flags
+	var printVersion bool
 	var switchPrevious bool
 	var nameSpaceMode bool
 	var nameSpaceOnlyMode bool
@@ -50,6 +54,7 @@ func main() {
 	var listFavorites bool
 	var favorite string
 
+	flag.BoolVar(&printVersion, "v", false, "Print the current version")
 	flag.BoolVar(&switchPrevious, "p", false, "Use to switch to the previously used context and namespace. Has no effect if state can't be retrieved.")
 	flag.BoolVar(&nameSpaceMode, "n", false, "Select namespace from the ones available for the selected context")
 	flag.BoolVar(&nameSpaceOnlyMode, "N", false, "Only select namespace from the ones available for the selected context")
@@ -58,6 +63,11 @@ func main() {
 	flag.StringVar(&favorite, "f", "", "Select a favorite context")
 	flag.StringVar(&favorite, "F", "", "Store current context and namespace as favorite")
 	flag.Parse()
+
+	if printVersion {
+		fmt.Println(version)
+		return
+	}
 
 	loadFavorite := flagPassed("f")
 	storeFavorite := flagPassed("F")

@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. 0.4.0)"
+        required: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sk
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push tag
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "v${VERSION}"
+          git push origin "v${VERSION}"
+
+      - name: Extract version
+        id: version
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Compute SHA256
+        id: sha256
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          url="https://github.com/erikkinding/sk/archive/refs/tags/v${VERSION}.tar.gz"
+          sha=$(curl -sL "$url" | shasum -a 256 | awk '{print $1}')
+          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Update README version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          sed -i "s|go install github.com/erikkinding/sk@v[^\"]*|go install github.com/erikkinding/sk@v${VERSION}|" README.md
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "Update README install version to v${VERSION}" || echo "No changes to commit"
+          git push
+
+      - name: Update Homebrew formula
+        env:
+          TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA256: ${{ steps.sha256.outputs.sha256 }}
+        run: |
+          git clone https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/erikkinding/homebrew-tap.git
+          cd homebrew-tap
+
+          sed -i "s|url \".*\"|url \"https://github.com/erikkinding/sk/archive/refs/tags/v${VERSION}.tar.gz\"|" Formula/sk.rb
+          sed -i "s|sha256 \".*\"|sha256 \"${SHA256}\"|" Formula/sk.rb
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/sk.rb
+          git commit -m "sk v${VERSION}"
+          git push
