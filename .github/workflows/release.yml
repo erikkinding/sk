@@ -88,9 +88,12 @@ jobs:
 
       - name: Package binaries
         run: |
-          tar -czf dist/sk_linux_amd64/sk_linux_amd64.tar.gz  -C dist/sk_linux_amd64  sk_linux_amd64
-          tar -czf dist/sk_darwin_amd64/sk_darwin_amd64.tar.gz -C dist/sk_darwin_amd64 sk_darwin_amd64
-          tar -czf dist/sk_darwin_arm64/sk_darwin_arm64.tar.gz -C dist/sk_darwin_arm64 sk_darwin_arm64
+          cp dist/sk_linux_amd64/sk_linux_amd64   dist/sk_linux_amd64/sk
+          cp dist/sk_darwin_amd64/sk_darwin_amd64 dist/sk_darwin_amd64/sk
+          cp dist/sk_darwin_arm64/sk_darwin_arm64 dist/sk_darwin_arm64/sk
+          tar -czf dist/sk_linux_amd64/sk_linux_amd64.tar.gz  -C dist/sk_linux_amd64  sk
+          tar -czf dist/sk_darwin_amd64/sk_darwin_amd64.tar.gz -C dist/sk_darwin_amd64 sk
+          tar -czf dist/sk_darwin_arm64/sk_darwin_arm64.tar.gz -C dist/sk_darwin_arm64 sk
 
       - name: Create GitHub Release
         env:
