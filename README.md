@@ -34,7 +34,58 @@ Output:
   -     Shorthand for -p. (Yes, just a lonely dash)
 ```
 
-Primarily, sk looks at $KUBECONFIG to decide which configuration to use and alter. If not set, it defaults to ~/.kube/config. 
+Primarily, sk looks at $KUBECONFIG to decide which configuration to use and alter. If not set, it defaults to ~/.kube/config.
+
+### Examples
+
+**Switch context (interactive prompt):**
+``` bash
+sk
+# Presents a list of available contexts to pick from.
+# Selected context becomes active immediately.
+```
+
+**Switch context and pick a namespace in one go:**
+``` bash
+sk -n
+# First prompts for a context, then prompts for a namespace within that context.
+```
+
+**Switch namespace only (stay in the current context):**
+``` bash
+sk -N
+# Useful when you're already in the right cluster but need a different namespace.
+```
+
+**Jump back to the previous context and namespace:**
+``` bash
+sk -
+# or: sk -p
+# Handy for toggling between two clusters, e.g. staging ↔ production.
+```
+
+**Save the current context/namespace as a favorite:**
+``` bash
+sk -F prod-eu
+# Stores the active context and namespace under the alias "prod-eu".
+```
+
+**Jump directly to a saved favorite:**
+``` bash
+sk -f prod-eu
+# Switches context and namespace in one command, no prompts.
+```
+
+**List all saved favorites:**
+``` bash
+sk -l
+```
+
+**Check what context and namespace is currently active:**
+``` bash
+sk -c
+# Prints e.g. "context: prod-eu-1 | namespace: payments"
+```
 
 
 ### Handy alias:
