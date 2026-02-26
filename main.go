@@ -331,9 +331,13 @@ func completer(suggestions []string) func(in prompt.Document) []prompt.Suggest {
 }
 
 func executor(in string) {
+	if len(in) == 0 {
+		return
+	}
 	fmt.Println(in)
 
 	if in[0] == byte(prompt.ControlC) {
+		restoreTermState()
 		os.Exit(0)
 	}
 }
@@ -356,6 +360,13 @@ func showPrompt(suggestions []string) string {
 		prompt.OptionCompletionOnDown(),
 		prompt.OptionShowCompletionAtStart(),
 		prompt.OptionPrefix(" ⎈ "),
+		prompt.OptionAddKeyBind(prompt.KeyBind{
+			Key: prompt.ControlC,
+			Fn: func(_ *prompt.Buffer) {
+				restoreTermState()
+				os.Exit(0)
+			},
+		}),
 	)
 
 	return p.Input()
