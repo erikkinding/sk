@@ -8,11 +8,13 @@ on:
         required: true
 
 jobs:
-  release:
+  # ── 1. tag ────────────────────────────────────────────────────────────────
+  tag:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      pull-requests: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout sk
         uses: actions/checkout@v4
@@ -34,18 +36,106 @@ jobs:
           VERSION: ${{ github.event.inputs.version }}
         run: echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Compute SHA256
+  # ── 2. build ──────────────────────────────────────────────────────────────
+  build:
+    needs: tag
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - name: Checkout sk
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+          VERSION: ${{ needs.tag.outputs.version }}
+        run: |
+          go build -ldflags "-X main.version=v${VERSION}" \
+            -o sk_${{ matrix.goos }}_${{ matrix.goarch }} .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sk_${{ matrix.goos }}_${{ matrix.goarch }}
+          path: sk_${{ matrix.goos }}_${{ matrix.goarch }}
+
+  # ── 3. GitHub release with prebuilt binaries ──────────────────────────────
+  release:
+    needs: [tag, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Package binaries
+        run: |
+          tar -czf dist/sk_linux_amd64/sk_linux_amd64.tar.gz  -C dist/sk_linux_amd64  sk_linux_amd64
+          tar -czf dist/sk_darwin_amd64/sk_darwin_amd64.tar.gz -C dist/sk_darwin_amd64 sk_darwin_amd64
+          tar -czf dist/sk_darwin_arm64/sk_darwin_arm64.tar.gz -C dist/sk_darwin_arm64 sk_darwin_arm64
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.tag.outputs.version }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          gh release create "v${VERSION}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "v${VERSION}" \
+            --generate-notes \
+            dist/sk_linux_amd64/sk_linux_amd64.tar.gz \
+            dist/sk_darwin_amd64/sk_darwin_amd64.tar.gz \
+            dist/sk_darwin_arm64/sk_darwin_arm64.tar.gz
+
+  # ── 4. post-release housekeeping ──────────────────────────────────────────
+  post-release:
+    needs: [tag, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout sk
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute SHA256 of release binaries
         id: sha256
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.tag.outputs.version }}
         run: |
-          url="https://github.com/erikkinding/sk/archive/refs/tags/v${VERSION}.tar.gz"
-          sha=$(curl -sL "$url" | shasum -a 256 | awk '{print $1}')
-          echo "sha256=$sha" >> "$GITHUB_OUTPUT"
+          base="https://github.com/erikkinding/sk/releases/download/v${VERSION}"
+          sha_linux_amd64=$(curl -sL "${base}/sk_linux_amd64.tar.gz"  | shasum -a 256 | awk '{print $1}')
+          sha_amd64=$(curl -sL "${base}/sk_darwin_amd64.tar.gz" | shasum -a 256 | awk '{print $1}')
+          sha_arm64=$(curl -sL "${base}/sk_darwin_arm64.tar.gz" | shasum -a 256 | awk '{print $1}')
+          echo "sha256_linux_amd64=$sha_linux_amd64" >> "$GITHUB_OUTPUT"
+          echo "sha256_amd64=$sha_amd64" >> "$GITHUB_OUTPUT"
+          echo "sha256_arm64=$sha_arm64" >> "$GITHUB_OUTPUT"
 
       - name: Update README version
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.tag.outputs.version }}
           GH_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
         run: |
           branch="release/v${VERSION}"
@@ -66,14 +156,24 @@ jobs:
       - name: Update Homebrew formula
         env:
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
-          VERSION: ${{ steps.version.outputs.version }}
-          SHA256: ${{ steps.sha256.outputs.sha256 }}
+          VERSION: ${{ needs.tag.outputs.version }}
+          SHA256_LINUX_AMD64: ${{ steps.sha256.outputs.sha256_linux_amd64 }}
+          SHA256_AMD64: ${{ steps.sha256.outputs.sha256_amd64 }}
+          SHA256_ARM64: ${{ steps.sha256.outputs.sha256_arm64 }}
         run: |
           git clone https://x-access-token:${TAP_GITHUB_TOKEN}@github.com/erikkinding/homebrew-tap.git
           cd homebrew-tap
 
-          sed -i "s|url \".*\"|url \"https://github.com/erikkinding/sk/archive/refs/tags/v${VERSION}.tar.gz\"|" Formula/sk.rb
-          sed -i "s|sha256 \".*\"|sha256 \"${SHA256}\"|" Formula/sk.rb
+          # Update version and download URLs
+          sed -i "s|version \"[^\"]*\"|version \"${VERSION}\"|" Formula/sk.rb
+          sed -i "s|/download/v[^/]*/|/download/v${VERSION}/|g" Formula/sk.rb
+
+          # Update each sha256 by matching the binary name on the preceding url line
+          perl -i -0pe "
+            s|(sk_darwin_arm64\.tar\.gz\"\n\s+sha256 \")[^\"]+|\${1}${SHA256_ARM64}|;
+            s|(sk_darwin_amd64\.tar\.gz\"\n\s+sha256 \")[^\"]+|\${1}${SHA256_AMD64}|;
+            s|(sk_linux_amd64\.tar\.gz\"\n\s+sha256 \")[^\"]+|\${1}${SHA256_LINUX_AMD64}|;
+          " Formula/sk.rb
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
