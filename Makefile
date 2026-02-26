@@ -3,7 +3,7 @@ MODULE     := $(shell go list -m)
 VERSION    := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS    := -ldflags "-X main.version=$(VERSION)"
 
-.PHONY: all build install test test-integration lint vet clean help
+.PHONY: all build install test test-integration lint vet clean release help
 
 all: build
 
@@ -30,6 +30,31 @@ lint:
 ## vet: run go vet
 vet:
 	go vet ./...
+
+## release: trigger the GitHub release workflow (bumps patch, or minor for feat commits)
+release:
+	@git pull
+	@LATEST=$$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0"); \
+	VERSION=$${LATEST#v}; \
+	MAJOR=$$(echo "$$VERSION" | cut -d. -f1); \
+	MINOR=$$(echo "$$VERSION" | cut -d. -f2); \
+	PATCH=$$(echo "$$VERSION" | cut -d. -f3); \
+	COMMIT_MSG=$$(git log -1 --format="%s"); \
+	if echo "$$COMMIT_MSG" | grep -q "^feat"; then \
+		MINOR=$$((MINOR + 1)); PATCH=0; \
+	else \
+		PATCH=$$((PATCH + 1)); \
+	fi; \
+	SUGGESTED="$$MAJOR.$$MINOR.$$PATCH"; \
+	echo "Latest tag : $$LATEST"; \
+	echo "Last commit: $$COMMIT_MSG"; \
+	echo "Suggested  : v$$SUGGESTED"; \
+	printf "Version to release [$$SUGGESTED]: "; \
+	read INPUT; \
+	RELEASE=$${INPUT:-$$SUGGESTED}; \
+	RELEASE=$${RELEASE#v}; \
+	echo "Triggering release workflow for v$$RELEASE …"; \
+	gh workflow run release.yml --field version=$$RELEASE
 
 ## clean: remove build artefacts
 clean:
