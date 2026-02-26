@@ -12,7 +12,7 @@ brew install sk
 ### Go
 Requires Go
 ``` bash
-go install github.com/erikkinding/sk@v0.3.9
+go install github.com/erikkinding/sk@v0.3.12
 ```
 Make sure your Go bin directory is part of your path, or create an alias for `sk`.
 
