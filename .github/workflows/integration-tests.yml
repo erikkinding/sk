@@ -4,10 +4,6 @@ on:
   pull_request:
     branches:
       - main
-    paths:
-      - "**/*.go"
-      - "go.mod"
-      - "go.sum"
 
 jobs:
   integration-tests:
@@ -17,16 +13,28 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect Go file changes
+        id: changes
+        run: |
+          count=$(git diff --name-only origin/${{ github.base_ref }}...HEAD \
+            | grep -cE '\.go$|^go\.(mod|sum)$' || true)
+          echo "go_changed=$([[ $count -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Go
+        if: steps.changes.outputs.go_changed == 'true'
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
 
       - name: Verify go mod tidy
+        if: steps.changes.outputs.go_changed == 'true'
         run: |
           go mod tidy
           git diff --exit-code go.mod go.sum
 
       - name: Run integration tests
+        if: steps.changes.outputs.go_changed == 'true'
         run: make test-integration
