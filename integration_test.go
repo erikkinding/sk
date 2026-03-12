@@ -407,6 +407,23 @@ func TestFavorite_ApplyFavorite(t *testing.T) {
 	assert.Equal(t, testNamespace2, updated.Contexts[ctxGamma].Namespace)
 }
 
+func TestFavorite_LoadFailsWhenFavoriteContextMissingFromKubeconfig(t *testing.T) {
+	setupTest(t)
+
+	// Store a favorite that points to a context not present in kubeconfig so the
+	// shared favorite-apply helper exercises the explicit nil-check guard.
+	favName := "missing"
+	require.NoError(t, storeValue(favoriteContextKeyPrefix+favName, "no-such-context"))
+	require.NoError(t, storeValue(favoriteNamespaceKeyPrefix+favName, "default"))
+
+	cfg, err := loadConfig().RawConfig()
+	require.NoError(t, err)
+
+	err = applyFavorite(cfg, readValue(favoriteContextKeyPrefix+favName), readValue(favoriteNamespaceKeyPrefix+favName))
+	require.Error(t, err)
+	assert.EqualError(t, err, "context \"no-such-context\" not found in kubeconfig")
+}
+
 func TestListFavorites_PrintsAllStoredFavorites(t *testing.T) {
 	setupTest(t)
 

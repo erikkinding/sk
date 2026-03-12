@@ -108,9 +108,7 @@ func main() {
 		fmt.Println(favoriteContext)
 		fmt.Println(favoriteNamespace)
 		if favoriteContext != "" && favoriteNamespace != "" {
-			rawConfig.CurrentContext = favoriteContext
-			rawConfig.Contexts[favoriteContext].Namespace = favoriteNamespace
-			setConfig(rawConfig)
+			checkErr(applyFavorite(rawConfig, favoriteContext, favoriteNamespace))
 		}
 	} else if storeFavorite {
 		checkErr(storeValue(fmt.Sprintf("%s%s", favoriteContextKeyPrefix, favorite), currentContext))
@@ -288,6 +286,16 @@ func applyNamespaceChange(rawConfig api.Config, contextName, namespaceName strin
 	if !ok || ctx == nil {
 		return fmt.Errorf("context %q not found in kubeconfig", contextName)
 	}
+	rawConfig.Contexts[contextName].Namespace = namespaceName
+	setConfig(rawConfig)
+	return nil
+}
+
+func applyFavorite(rawConfig api.Config, contextName, namespaceName string) error {
+	if rawConfig.Contexts[contextName] == nil {
+		return fmt.Errorf("context %q not found in kubeconfig", contextName)
+	}
+	rawConfig.CurrentContext = contextName
 	rawConfig.Contexts[contextName].Namespace = namespaceName
 	setConfig(rawConfig)
 	return nil
