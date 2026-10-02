@@ -224,12 +224,15 @@ func restoreTermState() {
 func getContextNames(rawConfig api.Config) []string {
 	contexts := []string{}
 	for context := range rawConfig.Contexts {
-		// Current value on top
-		if context == rawConfig.CurrentContext {
-			contexts = append([]string{context}, contexts...)
-		} else {
+		if context != rawConfig.CurrentContext {
 			contexts = append(contexts, context)
 		}
+	}
+	slices.Sort(contexts)
+
+	// Current value on top
+	if _, ok := rawConfig.Contexts[rawConfig.CurrentContext]; ok {
+		contexts = append([]string{rawConfig.CurrentContext}, contexts...)
 	}
 	return contexts
 }
