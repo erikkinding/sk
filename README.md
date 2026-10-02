@@ -42,7 +42,7 @@ Primarily, sk looks at $KUBECONFIG to decide which configuration to use and alte
 ``` bash
 sk
 # Presents a list of available contexts to pick from.
-# The current context appears first.
+# The current context appears first and is marked with *.
 # Selected context becomes active immediately.
 ```
 
