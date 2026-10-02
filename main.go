@@ -249,7 +249,7 @@ func applyContextChange(rawConfig api.Config, contextName string) error {
 func selectContext(rawConfig api.Config) api.Config {
 	contexts := getContextNames(rawConfig)
 
-	selectedContext := showPrompt(contexts)
+	selectedContext := showPrompt(contexts, rawConfig.CurrentContext)
 
 	if !validateSelection(contexts, selectedContext) {
 		fail(fmt.Sprintf("'%s' is not a valid context selection", selectedContext))
@@ -321,7 +321,7 @@ func selectNamespace(rawConfig api.Config) {
 		}
 	}
 
-	nsSelection := showPrompt(nsNames)
+	nsSelection := showPrompt(nsNames, "")
 
 	if !validateSelection(nsNames, nsSelection) {
 		fail(fmt.Sprintf("'%s' is not a valid namespace selection", selectedContext))
@@ -330,11 +330,15 @@ func selectNamespace(rawConfig api.Config) {
 	checkErr(applyNamespaceChange(rawConfig, selectedContext, nsSelection))
 }
 
-func completer(suggestions []string) func(in prompt.Document) []prompt.Suggest {
+func completer(suggestions []string, currentContext string) func(in prompt.Document) []prompt.Suggest {
 	return func(in prompt.Document) []prompt.Suggest {
 		s := []prompt.Suggest{}
 		for _, suggestion := range suggestions {
-			s = append(s, prompt.Suggest{Text: suggestion})
+			item := prompt.Suggest{Text: suggestion}
+			if currentContext != "" && suggestion == currentContext {
+				item.Description = "*"
+			}
+			s = append(s, item)
 		}
 
 		return prompt.FilterFuzzy(s, in.GetWordBeforeCursor(), true)
@@ -353,7 +357,7 @@ func executor(in string) {
 	}
 }
 
-func showPrompt(suggestions []string) string {
+func showPrompt(suggestions []string, currentContext string) string {
 
 	_, height, err := term.GetSize(int(os.Stdout.Fd()))
 	if err != nil {
@@ -363,10 +367,14 @@ func showPrompt(suggestions []string) string {
 
 	p := prompt.New(
 		executor,
-		completer(suggestions),
+		completer(suggestions, currentContext),
 		prompt.OptionPreviewSuggestionTextColor(prompt.Blue),
 		prompt.OptionSelectedSuggestionBGColor(prompt.LightGray),
 		prompt.OptionSuggestionBGColor(prompt.DarkGray),
+		prompt.OptionDescriptionTextColor(prompt.White),
+		prompt.OptionDescriptionBGColor(prompt.DarkGray),
+		prompt.OptionSelectedDescriptionTextColor(prompt.Black),
+		prompt.OptionSelectedDescriptionBGColor(prompt.LightGray),
 		prompt.OptionMaxSuggestion(uint16(height-2)),
 		prompt.OptionCompletionOnDown(),
 		prompt.OptionShowCompletionAtStart(),
